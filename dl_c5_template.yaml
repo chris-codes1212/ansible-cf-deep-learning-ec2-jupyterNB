@@ -1,0 +1,55 @@
+# dl_c5_template.yml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: C5 instance
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: c5.xlarge
+    Description: The EC2 instance type for the deep learning environment.
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The name of the EC2 Key Pair to use for SSH access.
+  AmiId:
+    Type: String
+    Default: ami-0aea5bf206fcd4a09
+    Description: The ID of the Deep Learning AMI.
+  JupyterPort:
+    Type: Number
+    Default: 8888
+    Description: The port to open for Jupyter Notebook access.
+
+Resources:
+  DLSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Deep Learning instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: !Ref JupyterPort
+          ToPort: !Ref JupyterPort
+          CidrIp: 0.0.0.0/0
+  
+  DLInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyPairName
+      SecurityGroupIds:
+        - !Ref DLSG
+      Tags:
+        - Key: Name
+          Value: !Sub 'DeepLearning-C5-${InstanceType}'
+
+Outputs:
+  InstanceId:
+    Description: The ID of the new EC2 instance.
+    Value: !Ref DLInstance
+  InstancePublicIp:
+    Description: The public IP address of the new EC2 instance.
+    Value: !GetAtt DLInstance.PublicIp

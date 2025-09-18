@@ -1,0 +1,93 @@
+# dl_playbook.yml
+- name: Launch and configure a deep cpu learning instance
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    stack_name: "DL"
+    template_file: "dl_c5_template.yaml"
+    instance_type: "c5.xlarge" # Or another c5 instance type
+    key_pair_name: "" # Replace with your EC2 Key Pair name
+    jupyter_password: "" # Replace with a strong password
+
+  tasks:
+    - name: Launch CloudFormation stack
+      amazon.aws.cloudformation:
+        stack_name: "{{ stack_name }}"
+        state: present
+        region: "us-east-1" # Specify your AWS region
+        template: "{{ template_file }}"
+        template_parameters:
+          InstanceType: "{{ instance_type }}"
+          KeyPairName: "{{ key_pair_name }}"
+      register: stack_output
+
+    - name: Get instance public IP from stack output
+      set_fact:
+        instance_public_ip: "{{ stack_output.stack_outputs.InstancePublicIp }}"
+
+    - name: Add new instance to inventory
+      add_host:
+        name: "{{ instance_public_ip }}"
+        groups: deeplearning_instances
+        ansible_user: "ubuntu" # Default user for Amazon Linux AMIs
+        ansible_ssh_private_key_file: "{{ key_pair_name }}.pem"
+
+    - name: Pause for 30 seconds
+      ansible.builtin.pause:
+        seconds: 30
+
+- name: Configure the deep learning instance
+  hosts: deeplearning_instances
+  become: yes
+  gather_facts: yes
+  vars:
+    jupyter_password: "{{ jupyter_password }}" # Use the same password as in the first play
+
+  tasks:
+    - name: Ensure Python development tools are installed
+      ansible.builtin.apt:
+        name: python3-dev
+        state: present
+
+    - name: Install TensorFlow
+      pip:
+        name: tensorflow
+        state: present
+        executable: pip3
+
+    - name: Install Jupyter and dependencies
+      pip:
+        name: jupyter
+        state: present
+        executable: pip3
+        
+    - name: Generate Jupyter configuration
+      command: "jupyter notebook --generate-config --allow-root"
+      args:
+        creates: "/home/ubuntu/.jupyter/jupyter_notebook_config.py"
+      become: yes
+      become_user: "ubuntu"
+
+    - name: Set Jupyter password
+      shell: "echo '{{ jupyter_password }}' | jupyter notebook password"
+      args:
+        chdir: "/home/ubuntu"
+      become: yes
+      become_user: "ubuntu"
+      ignore_errors: true
+
+    - name: Configure Jupyter to listen on all interfaces
+      lineinfile:
+        path: "/home/ubuntu/.jupyter/jupyter_notebook_config.py"
+        line: "c.NotebookApp.ip = '0.0.0.0'"
+        insertafter: "^#c.NotebookApp.ip"
+      become: yes
+      become_user: "ubuntu"
+
+    - name: Run Jupyter Notebook as a background service
+      ansible.builtin.shell: "nohup jupyter notebook --no-browser --port=8888 &"
+      args:
+        chdir: "/home/ubuntu"
+      become: yes
+      become_user: "ubuntu"
